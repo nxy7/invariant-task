@@ -7,6 +7,7 @@ use crate::types::{LpTokenAmount, TokenAmount};
 pub enum GeneralError {}
 
 #[derive(Error, Debug)]
+/// enum holding errors that can happen when adding liquidity
 pub enum AddLiquidityError {
     #[error("Add liquidity was called without any tokens")]
     NoTokensProvided,
@@ -15,6 +16,7 @@ pub enum AddLiquidityError {
 }
 
 #[derive(Error, Debug)]
+/// enum holding errors that can happen when removing liquidity
 pub enum RemoveLiquidityError {
     #[error("Caller wanted to withdraw {withdraw_amount:?} tokens from the pool that only has {pool_capacity:?}")]
     NotEnoughTokens {
@@ -26,6 +28,7 @@ pub enum RemoveLiquidityError {
 }
 
 #[derive(Error, Debug)]
+/// enum holding errors that can happen during swap
 pub enum SwapError {
     #[error(
         "Swap call would require {token_amount:?} but pool can only provide {pool_capacity:?}"

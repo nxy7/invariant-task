@@ -11,7 +11,7 @@ pub const SCALE: Uint = 10u32.pow(PRECISION as u32) as Uint;
 
 #[inline(always)]
 /// floating point numbers don't support const functions right now so we need separate function to
-/// calculate correct multiplier. Lu
+/// calculate correct multiplier. This should effectively be optimized by the compiler into const f64
 pub fn f64_precision_multiplier() -> f64 {
     SCALE as f64
 }
