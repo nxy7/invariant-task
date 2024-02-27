@@ -9,6 +9,8 @@ pub enum General {}
 pub enum AddLiquidityError {
     #[error("Add liquidity was called without any tokens")]
     NoTokensProvided,
+    #[error("Provided token amount was too big and would cause overflow")]
+    TokenAmountTooBig,
 }
 
 #[derive(Error, Debug)]
@@ -18,6 +20,8 @@ pub enum RemoveLiquidityError {
         withdraw_amount: LpTokenAmount,
         pool_capacity: LpTokenAmount,
     },
+    #[error("Calculating withdraw amount caused overflow, try using smaller withdraw amount")]
+    WithdrawCalculationOverflow,
 }
 
 #[derive(Error, Debug)]

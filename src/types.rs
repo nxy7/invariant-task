@@ -37,6 +37,7 @@ pub struct Price(Uint);
 pub struct Percentage(Uint);
 
 impl TokenAmount {
+    /// Applies fee and returns remaining amount
     pub fn apply_fee(&self, fee: Percentage) -> TokenAmount {
         TokenAmount::from_raw_amount(self.0 * (SCALE - fee.raw()) / SCALE)
     }
@@ -139,15 +140,35 @@ mod tests {
         let token = TokenAmount::from(TEST_AMOUNT as f64);
         assert_eq!(token.0, TEST_AMOUNT * SCALE);
     }
+
     #[test]
     fn can_create_item_from_uint() {
         let token = TokenAmount::from(TEST_AMOUNT);
         assert_eq!(token.0, TEST_AMOUNT * SCALE);
     }
+
     #[test]
     fn from_uint_f64_same_token_amounts() {
         let uint_token = TokenAmount::from(2);
         let f64_token = TokenAmount::from(2.);
         assert_eq!(uint_token, f64_token);
+    }
+
+    #[test]
+    fn can_calculate_percentage() {
+        // 10%
+        let percentage = Percentage::from(0.1);
+        let tokens = TokenAmount::from(100);
+        let new_amount = tokens.apply_fee(percentage);
+
+        assert_eq!(new_amount, TokenAmount::from(90));
+    }
+
+    #[test]
+    fn can_calculate_staked_price() {
+        let staked = StakedTokenAmount::from(1);
+        let in_tokens = staked.into_token_amount(Price::from(1.5));
+
+        assert_eq!(in_tokens.raw(), TokenAmount::from(1.5).raw());
     }
 }

@@ -5,7 +5,7 @@ use crate::types::*;
 
 #[derive(Debug)]
 /// Unstake Liquidity Pool following marinade protocol
-struct LpPool {
+pub struct LpPool {
     price: Price,
     token_amount: TokenAmount,
     st_token_amount: StakedTokenAmount,
@@ -16,8 +16,9 @@ struct LpPool {
 }
 
 impl LpPool {
+    /// Initialized and returns LpPool instance.
     /// Right now init doesn't have any extra logic so it's
-    /// effectively infallible function
+    /// effectively infallible function.
     pub fn init(
         price: Price,
         min_fee: Percentage,
@@ -35,7 +36,7 @@ impl LpPool {
         })
     }
 
-    /// Returns Amount of LP tokens granted to the caller
+    /// Returns Amount of LP tokens granted to the caller.
     ///
     /// # Arguments
     ///
@@ -47,9 +48,15 @@ impl LpPool {
         if token_amount_in.raw() == 0 {
             return Err(AddLiquidityError::NoTokensProvided);
         }
+
         let lp_tokens_raw_amount = match self.lp_token_amount.raw() {
             0 => token_amount_in.raw(),
-            lp_amount => lp_amount * token_amount_in.raw() / self.total_val().raw(),
+            lp_amount => {
+                let Some(checked_mul) = lp_amount.checked_mul(token_amount_in.raw()) else {
+                    return Err(AddLiquidityError::TokenAmountTooBig);
+                };
+                checked_mul / self.total_val().raw()
+            }
         };
         let lp_amount = LpTokenAmount::from_raw_amount(lp_tokens_raw_amount);
 
@@ -59,7 +66,7 @@ impl LpPool {
         Ok(lp_amount)
     }
 
-    /// Returns tuple consisting of unstaked and staked token amounts withdrawn from the pool
+    /// Returns tuple consisting of unstaked and staked token amounts withdrawn from the pool.
     ///
     /// # Arguments
     ///
@@ -75,12 +82,16 @@ impl LpPool {
             });
         }
 
-        let calculate_raw_out =
-            |raw_amount: Uint| raw_amount * lp_amount_out.raw() / self.lp_token_amount.raw();
+        let calculate_raw_out = |raw_amount: Uint| {
+            let Some(checked_mul) = raw_amount.checked_mul(lp_amount_out.raw()) else {
+                return Err(RemoveLiquidityError::WithdrawCalculationOverflow);
+            };
+            Ok(checked_mul / self.lp_token_amount.raw())
+        };
 
-        let token_out = TokenAmount::from_raw_amount(calculate_raw_out(self.token_amount.raw()));
+        let token_out = TokenAmount::from_raw_amount(calculate_raw_out(self.token_amount.raw())?);
         let staked_out =
-            StakedTokenAmount::from_raw_amount(calculate_raw_out(self.st_token_amount.raw()));
+            StakedTokenAmount::from_raw_amount(calculate_raw_out(self.st_token_amount.raw())?);
 
         self.token_amount = self.token_amount - token_out;
         self.st_token_amount = self.st_token_amount - staked_out;
@@ -89,7 +100,7 @@ impl LpPool {
         Ok((token_out, staked_out))
     }
 
-    /// Returns amount of tokens granted to the person executing swap
+    /// Returns amount of tokens granted to the person executing swap.
     ///
     /// # Arguments
     ///
@@ -124,7 +135,7 @@ impl LpPool {
         self.token_amount + staked_value
     }
 
-    /// returns pool swap percentage fee
+    /// Returns pool swap percentage fee.
     ///
     /// # Arguments
     ///
@@ -181,7 +192,7 @@ mod tests {
     fn non_empty_pool() -> LpPool {
         LpPool {
             price: 5.into(),
-            token_amount: 500.into(),
+            token_amount: (2 as Uint).pow(20).into(),
             st_token_amount: 30.into(),
             lp_token_amount: 250.into(),
             liquidity_target: 100.into(),
@@ -240,7 +251,7 @@ mod tests {
 
     #[rstest]
     fn can_remove_liquidity(mut non_empty_pool: LpPool) -> Result<(), Box<dyn Error>> {
-        let res = non_empty_pool.remove_liquidity(LpTokenAmount::from(20))?;
+        let res = non_empty_pool.remove_liquidity(LpTokenAmount::from(10))?;
         assert_ne!(res.0, TokenAmount::from(0), "removing liquidity from the pool consisting of both assets should not yield zero value");
         assert_ne!(res.1, StakedTokenAmount::from(0), "removing liquidity from the pool consisting of both assets should not yield zero value");
         Ok(())
