@@ -44,7 +44,7 @@ impl TokenAmount {
 }
 
 impl StakedTokenAmount {
-    pub fn into_token_amount(&self, price: Price) -> TokenAmount {
+    pub fn into_token_amount(self, price: Price) -> TokenAmount {
         TokenAmount::from_raw_amount(self.raw() * price.raw() / SCALE)
     }
 }

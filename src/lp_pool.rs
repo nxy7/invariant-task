@@ -79,21 +79,11 @@ impl LpPool {
     ) -> Result<TokenAmount, Box<dyn Error>> {
         let amount_out_before_fees = staked_amount_out.into_token_amount(self.price);
         let fee = self.fee(self.token_amount - amount_out_before_fees);
-        dbg!(amount_out_before_fees);
-        dbg!(fee);
 
         let amount_out = amount_out_before_fees.apply_fee(fee);
 
-        let fee_loss = amount_out_before_fees - amount_out;
-        let loss_lp_value =
-            LpTokenAmount::from_token_amount(fee_loss, self.token_amount, self.lp_token_amount);
-
-        dbg!(amount_out);
-        dbg!(loss_lp_value);
-
         self.token_amount = self.token_amount - amount_out;
         self.st_token_amount = self.st_token_amount + staked_amount_out;
-        // self.lp_token_amount = self.lp_token_amount - loss_lp_value;
 
         Ok(amount_out)
     }
@@ -108,7 +98,7 @@ impl LpPool {
     // returns information on how much Token is each LpToken worth
     fn new_lp_token_value(&self, tokens_added: TokenAmount) -> TokenAmount {
         let assets_total = match (self.total_val() + tokens_added).raw() {
-            v if v == 0 => return TokenAmount::from(1),
+            0 => return TokenAmount::from(1),
             v => v,
         };
         let lp_tokens = self.lp_token_amount.raw();
