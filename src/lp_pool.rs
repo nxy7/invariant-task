@@ -1,9 +1,10 @@
-use std::error::Error;
+use std::convert::Infallible;
 
 use crate::error::*;
 use crate::types::*;
 
 #[derive(Debug)]
+/// Unstake Liquidity Pool following marinade protocol
 struct LpPool {
     price: Price,
     token_amount: TokenAmount,
@@ -15,12 +16,14 @@ struct LpPool {
 }
 
 impl LpPool {
+    /// Right now init doesn't have any extra logic so it's
+    /// effectively infallible function
     pub fn init(
         price: Price,
         min_fee: Percentage,
         max_fee: Percentage,
         liquidity_target: TokenAmount,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, Infallible> {
         Ok(Self {
             price,
             token_amount: TokenAmount::from(0),
@@ -32,36 +35,49 @@ impl LpPool {
         })
     }
 
+    /// Returns Amount of LP tokens granted to the caller
+    ///
+    /// # Arguments
+    ///
+    /// * `token_amount_in` - amount of 'unstaked' tokens provided by the caller
     pub fn add_liquidity(
         &mut self,
-        token_amount: TokenAmount,
+        token_amount_in: TokenAmount,
     ) -> Result<LpTokenAmount, AddLiquidityError> {
-        if token_amount.raw() == 0 {
+        if token_amount_in.raw() == 0 {
             return Err(AddLiquidityError::NoTokensProvided);
         }
         let lp_tokens_raw_amount = match self.lp_token_amount.raw() {
-            0 => token_amount.raw(),
-            lp_amount => lp_amount * token_amount.raw() / self.total_val().raw(),
+            0 => token_amount_in.raw(),
+            lp_amount => lp_amount * token_amount_in.raw() / self.total_val().raw(),
         };
         let lp_amount = LpTokenAmount::from_raw_amount(lp_tokens_raw_amount);
         dbg!(lp_amount);
 
-        self.token_amount = self.token_amount + token_amount;
+        self.token_amount = self.token_amount + token_amount_in;
         self.lp_token_amount = self.lp_token_amount + lp_amount;
 
         Ok(lp_amount)
     }
 
+    /// Returns tuple consisting of unstaked and staked token amounts withdrawn from the pool
+    ///
+    /// # Arguments
+    ///
+    /// * `lp_amount_out` - lp token amount that the caller wants to withdraw from the pool
     pub fn remove_liquidity(
         &mut self,
-        lp_token_amount: LpTokenAmount,
-    ) -> Result<(TokenAmount, StakedTokenAmount), Box<dyn Error>> {
-        if lp_token_amount > self.lp_token_amount {
-            return Err("pool doesn't have enough LP tokens".into());
+        lp_amount_out: LpTokenAmount,
+    ) -> Result<(TokenAmount, StakedTokenAmount), RemoveLiquidityError> {
+        if lp_amount_out > self.lp_token_amount {
+            return Err(RemoveLiquidityError::NotEnoughTokens {
+                withdraw_amount: lp_amount_out,
+                pool_capacity: self.lp_token_amount,
+            });
         }
 
         let calculate_raw_out =
-            |raw_amount: Uint| raw_amount * lp_token_amount.raw() / self.lp_token_amount.raw();
+            |raw_amount: Uint| raw_amount * lp_amount_out.raw() / self.lp_token_amount.raw();
 
         let token_out = TokenAmount::from_raw_amount(calculate_raw_out(self.token_amount.raw()));
         let staked_out =
@@ -69,50 +85,47 @@ impl LpPool {
 
         self.token_amount = self.token_amount - token_out;
         self.st_token_amount = self.st_token_amount - staked_out;
+        self.lp_token_amount = self.lp_token_amount - lp_amount_out;
 
         Ok((token_out, staked_out))
     }
 
-    pub fn swap(
-        &mut self,
-        staked_amount_out: StakedTokenAmount,
-    ) -> Result<TokenAmount, Box<dyn Error>> {
-        let amount_out_before_fees = staked_amount_out.into_token_amount(self.price);
+    /// Returns tuple consisting of unstaked and staked token amounts withdrawn from the pool
+    ///
+    /// # Arguments
+    ///
+    /// * `swap_amount` - amount of
+    pub fn swap(&mut self, swap_amount: StakedTokenAmount) -> Result<TokenAmount, SwapError> {
+        let amount_out_before_fees = swap_amount.into_token_amount(self.price);
         let fee = self.fee(self.token_amount - amount_out_before_fees);
 
         let amount_out = amount_out_before_fees.apply_fee(fee);
 
         self.token_amount = self.token_amount - amount_out;
-        self.st_token_amount = self.st_token_amount + staked_amount_out;
+        self.st_token_amount = self.st_token_amount + swap_amount;
 
         Ok(amount_out)
     }
 
-    /// total pool value as TokenAmount
+    /// Returns total value stored inside the pool (tokens + staked tokens) as `TokenAmount`
     fn total_val(&self) -> TokenAmount {
         let staked_value =
             TokenAmount::from_raw_amount(self.st_token_amount.raw() * self.price.raw() / SCALE);
         self.token_amount + staked_value
     }
 
-    // returns information on how much Token is each LpToken worth
-    fn new_lp_token_value(&self, tokens_added: TokenAmount) -> TokenAmount {
-        let assets_total = match (self.total_val() + tokens_added).raw() {
-            0 => return TokenAmount::from(1),
-            v => v,
-        };
-        let lp_tokens = self.lp_token_amount.raw();
-        TokenAmount::from_raw_amount(lp_tokens * SCALE / assets_total)
-    }
-
-    /// returns pool Percentage fee
+    /// returns pool swap percentage fee
+    ///
+    /// # Arguments
+    ///
+    /// * `amount_after` - Token amount after operation
     fn fee(&self, amount_after: TokenAmount) -> Percentage {
-        // UNSTAKE FORMULA
-        // unstake_fee = max_fee - (max_fee - min_fee) * amount_after / target
+        // FEE FORMULA
+        // fee = max_fee - (max_fee - min_fee) * amount_after / target
         let rhs =
             (self.max_fee - self.min_fee).raw() * amount_after.raw() / self.liquidity_target.raw();
-
         let rhs = rhs.min(self.max_fee.raw());
+
         // we're capping rhs to max_fee so there's no need to check if current_percentage is over it later on
         // and we avoid overflows
         let current_percentage = (self.max_fee.raw() - rhs).max(self.min_fee.raw());
