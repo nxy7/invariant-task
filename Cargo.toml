@@ -1,0 +1,12 @@
+[package]
+name = "invariant-task"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+duplicate = "1.0.0"
+thiserror = "1.0.57"
+tracing = "0.1.40"
+
+[dev-dependencies]
+rstest = "0.18.2"
