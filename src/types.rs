@@ -1,6 +1,5 @@
-use std::ops::{Add, Div, Mul, Sub};
-
 use duplicate::duplicate_item;
+use std::ops::{Add, Div, Mul, Sub};
 
 /// precision selected for our fixed-point decimals
 const PRECISION: i32 = 6;
@@ -78,7 +77,7 @@ impl ImplName {
     }
 }
 
-#[duplicate_item(ImplName; [TokenAmount]; [StakedTokenAmount]; [LpTokenAmount]; [Price]; [Percentage])]
+#[duplicate_item(ImplName; [TokenAmount]; [StakedTokenAmount]; [LpTokenAmount]; [Price])]
 impl From<Uint> for ImplName {
     fn from(value: Uint) -> Self {
         Self(value * SCALE)
