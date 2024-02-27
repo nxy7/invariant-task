@@ -52,7 +52,6 @@ impl LpPool {
             lp_amount => lp_amount * token_amount_in.raw() / self.total_val().raw(),
         };
         let lp_amount = LpTokenAmount::from_raw_amount(lp_tokens_raw_amount);
-        dbg!(lp_amount);
 
         self.token_amount = self.token_amount + token_amount_in;
         self.lp_token_amount = self.lp_token_amount + lp_amount;
@@ -90,13 +89,24 @@ impl LpPool {
         Ok((token_out, staked_out))
     }
 
-    /// Returns tuple consisting of unstaked and staked token amounts withdrawn from the pool
+    /// Returns amount of tokens granted to the person executing swap
     ///
     /// # Arguments
     ///
-    /// * `swap_amount` - amount of
+    /// * `swap_amount` - amount of staked tokens in incoming swap
     pub fn swap(&mut self, swap_amount: StakedTokenAmount) -> Result<TokenAmount, SwapError> {
+        if swap_amount.raw() == 0 {
+            return Err(SwapError::ZeroTokensAsArgument);
+        }
+
         let amount_out_before_fees = swap_amount.into_token_amount(self.price);
+        if amount_out_before_fees > self.token_amount {
+            return Err(SwapError::PoolNotEnoughTokens {
+                token_amount: amount_out_before_fees,
+                pool_capacity: self.token_amount,
+            });
+        }
+
         let fee = self.fee(self.token_amount - amount_out_before_fees);
 
         let amount_out = amount_out_before_fees.apply_fee(fee);
@@ -135,6 +145,8 @@ impl LpPool {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use rstest::{fixture, rstest};
 
     use super::*;
@@ -153,9 +165,9 @@ mod tests {
     }
 
     #[fixture]
-    fn pool_1() -> LpPool {
+    fn empty_pool() -> LpPool {
         LpPool {
-            price: 1.into(),
+            price: 2.into(),
             token_amount: 0.into(),
             st_token_amount: 0.into(),
             lp_token_amount: 0.into(),
@@ -166,12 +178,12 @@ mod tests {
     }
 
     #[fixture]
-    fn pool_2() -> LpPool {
+    fn non_empty_pool() -> LpPool {
         LpPool {
-            price: 1.into(),
-            token_amount: 0.into(),
-            st_token_amount: 0.into(),
-            lp_token_amount: 0.into(),
+            price: 5.into(),
+            token_amount: 500.into(),
+            st_token_amount: 30.into(),
+            lp_token_amount: 250.into(),
             liquidity_target: 100.into(),
             min_fee: 0.1.into(),
             max_fee: 0.2.into(),
@@ -179,26 +191,95 @@ mod tests {
     }
 
     #[rstest]
-    fn can_calculate_fees(pool_1: LpPool, pool_2: LpPool) {
-        assert_eq!(pool_1.fee(0.into()).raw(), Percentage::from(0.09).raw());
-        assert_eq!(pool_1.fee(100.into()).raw(), Percentage::from(0.0).raw());
-        assert_eq!(pool_1.fee(50.into()).raw(), Percentage::from(0.045).raw());
+    fn can_calculate_fees(empty_pool: LpPool, non_empty_pool: LpPool) {
+        assert_eq!(empty_pool.fee(0.into()).raw(), Percentage::from(0.09).raw());
+        assert_eq!(
+            empty_pool.fee(100.into()).raw(),
+            Percentage::from(0.0).raw()
+        );
+        assert_eq!(
+            empty_pool.fee(50.into()).raw(),
+            Percentage::from(0.045).raw()
+        );
 
-        assert_eq!(pool_2.fee(0.into()).raw(), Percentage::from(0.2).raw());
-        assert_eq!(pool_2.fee(100.into()).raw(), Percentage::from(0.1).raw());
-        assert_eq!(pool_2.fee(50.into()).raw(), Percentage::from(0.15).raw());
+        assert_eq!(
+            non_empty_pool.fee(0.into()).raw(),
+            Percentage::from(0.2).raw()
+        );
+        assert_eq!(
+            non_empty_pool.fee(100.into()).raw(),
+            Percentage::from(0.1).raw()
+        );
+        assert_eq!(
+            non_empty_pool.fee(50.into()).raw(),
+            Percentage::from(0.15).raw()
+        );
     }
 
     #[rstest]
-    fn can_add_liquidity() {}
-    #[rstest]
-    fn errors_on_add_liquidity() {}
+    fn can_add_liquidity(mut empty_pool: LpPool) -> Result<(), Box<dyn Error>> {
+        let added = empty_pool.add_liquidity(TokenAmount::from(20))?;
+        assert_eq!(
+            added,
+            LpTokenAmount::from(20),
+            "initial liquidity added should match token amount added"
+        );
+
+        Ok(())
+    }
 
     #[rstest]
-    fn can_remove_liquidity() {}
+    fn errors_on_empty_add_liquidity(mut story_example_pool: LpPool) {
+        assert!(
+            story_example_pool
+                .add_liquidity(TokenAmount::from_raw_amount(0))
+                .is_err(),
+            "adding zero liquidity should fail"
+        )
+    }
 
     #[rstest]
-    fn can_execute_swap() {}
+    fn can_remove_liquidity(mut non_empty_pool: LpPool) -> Result<(), Box<dyn Error>> {
+        let res = non_empty_pool.remove_liquidity(LpTokenAmount::from(20))?;
+        assert_ne!(res.0, TokenAmount::from(0), "removing liquidity from the pool consisting of both assets should not yield zero value");
+        assert_ne!(res.1, StakedTokenAmount::from(0), "removing liquidity from the pool consisting of both assets should not yield zero value");
+        Ok(())
+    }
+
+    #[rstest]
+    fn errors_on_remove_liquidity_bigger_than_pool(mut empty_pool: LpPool) {
+        let res = empty_pool.remove_liquidity(LpTokenAmount::from(1000));
+        assert!(res.is_err());
+    }
+
+    #[rstest]
+    fn can_execute_swap(mut non_empty_pool: LpPool) -> Result<(), Box<dyn Error>> {
+        let swap_result = non_empty_pool.swap(StakedTokenAmount::from(3))?;
+        assert_ne!(
+            swap_result,
+            TokenAmount::from(0),
+            "successful swap should result in non-zero token amount granted to the caller"
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn swap_errors_on_not_enough_tokens(mut empty_pool: LpPool) {
+        let swap_result = empty_pool.swap(StakedTokenAmount::from(3));
+        assert!(
+            swap_result.is_err(),
+            "swap on empty pool should always yield err"
+        );
+    }
+
+    #[rstest]
+    fn swap_errors_on_zero_token_argument(mut empty_pool: LpPool) {
+        let swap_result = empty_pool.swap(StakedTokenAmount::from(0));
+        assert!(
+            swap_result.is_err(),
+            "swap on empty pool should always yield err"
+        );
+    }
 
     #[rstest]
     fn story_example(mut story_example_pool: LpPool) -> Result<(), Box<dyn Error>> {

@@ -1,6 +1,9 @@
 use thiserror::Error;
 
-use crate::types::LpTokenAmount;
+use crate::types::{LpTokenAmount, TokenAmount};
+
+#[derive(Error, Debug)]
+pub enum General {}
 
 #[derive(Error, Debug)]
 pub enum AddLiquidityError {
@@ -18,4 +21,14 @@ pub enum RemoveLiquidityError {
 }
 
 #[derive(Error, Debug)]
-pub enum SwapError {}
+pub enum SwapError {
+    #[error(
+        "Swap call would require {token_amount:?} but pool can only provide {pool_capacity:?}"
+    )]
+    PoolNotEnoughTokens {
+        token_amount: TokenAmount,
+        pool_capacity: TokenAmount,
+    },
+    #[error("Zero tokens were passed as swap argument")]
+    ZeroTokensAsArgument,
+}
