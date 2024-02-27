@@ -3,7 +3,8 @@ use thiserror::Error;
 use crate::types::{LpTokenAmount, TokenAmount};
 
 #[derive(Error, Debug)]
-pub enum General {}
+/// enum holding common errors
+pub enum GeneralError {}
 
 #[derive(Error, Debug)]
 pub enum AddLiquidityError {
